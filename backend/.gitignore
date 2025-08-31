@@ -1,0 +1,26 @@
+
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+
+venv/
+.env/
+.venv/
+
+
+*.env
+
+# Models 
+*.gguf
+models/
+
+
+.vscode/
+
+
+.DS_Store
+
+
+*.log
