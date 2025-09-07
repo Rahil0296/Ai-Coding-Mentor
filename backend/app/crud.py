@@ -29,7 +29,7 @@ def get_roadmaps(db: Session, user_id: int):
     return db.query(Roadmap).filter(Roadmap.user_id == user_id).order_by(Roadmap.updated_at.desc()).all()
 
 def save_conversation_message(db: Session, user_id: int, message: str, sender: str):
-    conv = ConversationHistory(user_id=user_id, message=message, sender=sender)
+    conv = ConversationHistory(user_id=user_id,  message=message, sender=sender)
     db.add(conv)
     db.commit()
     return conv

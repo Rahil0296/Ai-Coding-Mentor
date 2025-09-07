@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from app.schemas import OnboardRequest
 from app.crud import create_user
 from app.dependencies import get_db
-
+ 
 router = APIRouter(prefix="/users", tags=["users"])
 
 @router.post("/onboard")

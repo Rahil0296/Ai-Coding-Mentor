@@ -5,3 +5,4 @@ DATABASE_URL = "postgresql://postgres:leomessi123@localhost:5433/agentic_db"  # 
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+ 

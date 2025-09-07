@@ -7,7 +7,7 @@ model_dir = os.path.join(Path(__file__).parent.resolve(), "app", "models")
 
 model = GPT4All(
     model_name="mistral-7b-instruct-v0.1.Q4_0.gguf",
-    model_path=model_dir,
+    model_path=model_dir, 
     allow_download=False,
 )
 

@@ -3,7 +3,7 @@ from typing import List
 from sqlalchemy.orm import Session
 from app.schemas import RoadmapCreate, RoadmapOut
 from app.crud import get_user, create_roadmap, get_roadmaps
-from app.dependencies import get_db
+from app.dependencies import get_db 
 
 router = APIRouter(prefix="/roadmaps", tags=["roadmaps"])
 

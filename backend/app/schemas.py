@@ -20,7 +20,7 @@ class OnboardRequest(BaseModel):
 
 class RoadmapCreate(BaseModel):
     user_id: int
-    roadmap_json: Any
+    roadmap_json: Any 
 
 class RoadmapOut(BaseModel):
     id: int

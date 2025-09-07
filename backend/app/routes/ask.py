@@ -23,7 +23,7 @@ def build_prompt_with_roadmap(user_id: int, question: str, history, db: Session)
         latest_roadmap = latest_roadmaps[0]
         prompt += f"\nUser's current learning roadmap:\n{json.dumps(latest_roadmap.roadmap_json, indent=2)}\n\n"
 
-    prompt += f"User: {question}\nAssistant:"
+    prompt += f"User: {question}\nAssistant:" 
     return prompt
 
 async def generate_tokens_json(prompt: str):
