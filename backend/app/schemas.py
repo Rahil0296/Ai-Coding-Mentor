@@ -1,10 +1,13 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 from typing import List, Optional, Any
 from datetime import datetime
 
+
+# This is for multi-turn chat history
 class HistoryTurn(BaseModel):
     user: str
     assistant: str
+
 
 class Ask(BaseModel):
     user_id: int
@@ -12,15 +15,19 @@ class Ask(BaseModel):
     history: Optional[List[HistoryTurn]] = None
 
 class OnboardRequest(BaseModel):
+    name: str = Field(..., min_length=1)
+    email: EmailStr
     language: str
     learning_style: str
     daily_hours: int
     goal: str
     experience: str
 
+
 class RoadmapCreate(BaseModel):
     user_id: int
-    roadmap_json: Any 
+    roadmap_json: Any
+
 
 class RoadmapOut(BaseModel):
     id: int
@@ -29,6 +36,26 @@ class RoadmapOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    model_config = {
-        "from_attributes": True
-    }
+    class Config:
+        orm_mode = True
+
+class UserProfileResponse(BaseModel):
+    id: int
+    language: str
+    learning_style: str
+    daily_hours: int
+    goal: str
+    experience: str
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+class UserOnboardResponse(BaseModel):
+    id: int
+    name: str
+    email: EmailStr
+    profile: UserProfileResponse
+
+    class Config:
+        orm_mode = True
