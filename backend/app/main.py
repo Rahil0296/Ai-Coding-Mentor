@@ -20,25 +20,33 @@ async def lifespan(app: FastAPI):
     state.model = None
     state.model_loaded = False
 
-    try:
-        
-        resp = requests.get(f"{state.ollama_base_url}/api/tags", timeout=3)
-        resp.raise_for_status()
-        tags = resp.json().get("models", []) or resp.json().get("data", [])
-        
-        names = {t.get("name") or t.get("model") for t in tags if isinstance(t, dict)}
-        state.model_loaded = state.model_name in names
+    # Check for mock mode
+    state.mock_mode = os.getenv("MOCK_LLM", "false").lower() == "true"
+    
+    if state.mock_mode:
+        logging.info("Running in MOCK mode - no Ollama connection required")
+        state.model_loaded = True
+    else:
+        try:
+            
+            resp = requests.get(f"{state.ollama_base_url}/api/tags", timeout=3)
+            resp.raise_for_status()
+            tags = resp.json().get("models", []) or resp.json().get("data", [])
+            
+            names = {t.get("name") or t.get("model") for t in tags if isinstance(t, dict)}
+            state.model_loaded = state.model_name in names
 
-        if state.model_loaded:
-            logging.info(f"Ollama ready with model '{state.model_name}' at {state.ollama_base_url}.")
-        else:
-            logging.warning(
-                f"Ollama reachable but model '{state.model_name}' not found in tags: {sorted(names)}. "
-                f"Create or pull the model, then restart the API."
-            )
-    except Exception as e:
-        logging.error(f"Ollama probe failed: {e}")
-        state.model_loaded = False
+            if state.model_loaded:
+                logging.info(f"Ollama ready with model '{state.model_name}' at {state.ollama_base_url}.")
+            else:
+                logging.warning(
+                    f"Ollama reachable but model '{state.model_name}' not found in tags: {sorted(names)}. "
+                    f"Create or pull the model, then restart the API."
+                )
+        except Exception as e:
+            logging.error(f"Ollama probe failed: {e}")
+            logging.info("To run in mock mode, set MOCK_LLM=true in your .env file")
+            state.model_loaded = False
     yield
     state.model_loaded = False
     state.model = None
@@ -48,6 +56,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="AI Coding Mentor API", lifespan=lifespan)
 
 from app.routes import users, roadmaps, ask, health  # noqa: E402
+try:
+    from app.routes import execute  # noqa: E402
+    app.include_router(execute.router)
+except ImportError:
+    logging.warning("Execute route not found - code execution will not be available")
 
 app.include_router(users.router)
 app.include_router(roadmaps.router)

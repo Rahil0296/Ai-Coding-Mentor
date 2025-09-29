@@ -21,7 +21,7 @@ def create_user_with_profile(db: Session, data: OnboardRequest):
 
         new_profile = UserProfile(
             user_id=new_user.id,
-            language=data.language,
+            programming_language=data.programming_language,  # Changed
             learning_style=data.learning_style,
             daily_hours=data.daily_hours,
             goal=data.goal,
