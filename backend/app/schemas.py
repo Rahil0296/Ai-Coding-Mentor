@@ -17,7 +17,7 @@ class Ask(BaseModel):
 class OnboardRequest(BaseModel):
     name: str = Field(..., min_length=1)
     email: EmailStr
-    language: str
+    programming_language: str  # Changed from 'language'
     learning_style: str
     daily_hours: int
     goal: str
