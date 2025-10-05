@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, Depends, HTTPException
 from typing import List
+import json
 from sqlalchemy.orm import Session
 from app.schemas import RoadmapCreate, RoadmapOut
-from app.crud import get_user, create_roadmap, get_roadmaps
-from app.dependencies import get_db 
+from app.crud import get_user, get_roadmaps
+from app.dependencies import get_db
+from app.models import Roadmap
 
 router = APIRouter(prefix="/roadmaps", tags=["roadmaps"])
 
@@ -12,7 +14,21 @@ def create_roadmap_route(roadmap_in: RoadmapCreate, db: Session = Depends(get_db
     user = get_user(db, roadmap_in.user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    roadmap = create_roadmap(db, roadmap_in)
+    
+    # Convert dict to JSON string if needed
+    roadmap_json = roadmap_in.roadmap_json
+    if isinstance(roadmap_json, dict):
+        roadmap_json = json.dumps(roadmap_json)
+    
+    # Create roadmap
+    roadmap = Roadmap(
+        user_id=roadmap_in.user_id,
+        roadmap_json=roadmap_json
+    )
+    db.add(roadmap)
+    db.commit()
+    db.refresh(roadmap)
+    
     return roadmap
 
 @router.get("/{user_id}", response_model=List[RoadmapOut])

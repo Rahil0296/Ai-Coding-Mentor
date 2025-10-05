@@ -3,7 +3,6 @@ from typing import List, Optional, Any
 from datetime import datetime
 
 
-# This is for multi-turn chat history
 class HistoryTurn(BaseModel):
     user: str
     assistant: str
@@ -14,10 +13,11 @@ class Ask(BaseModel):
     question: str = Field(..., min_length=5, max_length=1000)
     history: Optional[List[HistoryTurn]] = None
 
+
 class OnboardRequest(BaseModel):
     name: str = Field(..., min_length=1)
     email: EmailStr
-    programming_language: str  # Changed from 'language'
+    programming_language: str
     learning_style: str
     daily_hours: int
     goal: str
@@ -37,11 +37,12 @@ class RoadmapOut(BaseModel):
     updated_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
+
 
 class UserProfileResponse(BaseModel):
     id: int
-    language: str
+    programming_language: str
     learning_style: str
     daily_hours: int
     goal: str
@@ -49,7 +50,8 @@ class UserProfileResponse(BaseModel):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
+
 
 class UserOnboardResponse(BaseModel):
     id: int
@@ -58,4 +60,4 @@ class UserOnboardResponse(BaseModel):
     profile: UserProfileResponse
 
     class Config:
-        orm_mode = True
+        from_attributes = True

@@ -14,7 +14,7 @@ def test_current_system():
         json={
             "name": "Current Test User",
             "email": unique_email,
-            "language": "en",
+            "programming_language": "Python",
             "learning_style": "hands-on",
             "daily_hours": 2,
             "goal": "Learn Python basics",
