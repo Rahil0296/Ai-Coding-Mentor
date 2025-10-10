@@ -1,5 +1,6 @@
 import json
 import time
+import re
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
@@ -8,11 +9,12 @@ import uuid
 
 from app.models import AgentTrace, AgentPerformanceMetrics, UserProfile
 from app.schemas import HistoryTurn
+from app.tools.code_validator import CodeValidator, TestCase
 
 
 class SelfImprovingReActAgent:
     """
-    Simplified working agent that actually answers user questions.
+    Self-improving agent that validates generated code and uses real confidence scores.
     Logs interactions for future learning analysis.
     """
     
@@ -20,7 +22,8 @@ class SelfImprovingReActAgent:
         self.llm = llm_client
         self.db = db
         self.session_id = str(uuid.uuid4())
-        
+        self.validator = CodeValidator()  # ← NEW: Initialize validator
+    
     async def process_request(self, user_id: int, question: str, history: List[HistoryTurn]) -> Dict:
         """Process user question and return response with metrics."""
         start_time = time.time()
@@ -42,14 +45,30 @@ class SelfImprovingReActAgent:
         # Analyze past performance
         learning_insights = await self._analyze_past_performance(user_id)
         
-        # Build context-aware prompt that includes the actual question
+        # Build context-aware prompt
         prompt = self._build_teaching_prompt(user_profile, question, history, learning_insights)
         
         # Get response from LLM
         try:
             response_text = await self.llm.generate(prompt, timeout=30)
-            success = len(response_text) > 50
-            confidence = 85 if success else 50
+            
+            # ← NEW: Check if response contains code and validate it
+            contains_code = self._check_if_contains_code(response_text)
+            
+            if contains_code:
+                # Extract and validate code
+                validation_result = await self._validate_response_code(response_text)
+                confidence = validation_result['confidence']
+                success = validation_result['success']
+                
+                # Add validation info to response
+                if validation_result.get('validation_details'):
+                    response_text += f"\n\n---\n**Code Validation**: {validation_result['validation_details']}"
+            else:
+                # For non-code responses, use simpler heuristic
+                success = len(response_text) > 50
+                confidence = 80 if success else 50
+                
         except Exception as e:
             response_text = f"I encountered an error. Please try rephrasing your question."
             success = False
@@ -84,20 +103,79 @@ class SelfImprovingReActAgent:
             "improvement_active": bool(learning_insights.get("prefer_actions"))
         }
     
-    def _build_teaching_prompt(self, user_profile: UserProfile, question: str, 
+    def _check_if_contains_code(self, text: str) -> bool:
+        """
+        Check if response contains code blocks.
+        
+        Args:
+            text: Response text to check
+            
+        Returns:
+            True if code is detected
+        """
+        # Look for code blocks or code indicators
+        code_patterns = [
+            r'```',
+            r'\bdef\s+\w+\s*$$',  # Python functions
+            r'\bclass\s+\w+',  # Python classes
+            r'\bfunction\s+\w+\s*$$',  # JavaScript functions
+            r'\bconst\s+\w+\s*=',  # JavaScript const
+            r'\blet\s+\w+\s*=',  # JavaScript let
+        ]
+        
+        return any(re.search(pattern, text) for pattern in code_patterns)
+
+    
+    async def _validate_response_code(self, response: str) -> Dict:
+        """
+        Extract and validate code from response.
+        
+        Args:
+            response: Full response text
+            
+        Returns:
+            Dict with validation results
+        """
+        # Extract code
+        code = self.validator.extract_code_from_response(response, language="python")
+        
+        if not code:
+            return {
+                'success': True,
+                'confidence': 75,
+                'validation_details': None
+            }
+        
+        # Validate the code
+        validation_result = await self.validator.validate_code(code)
+        
+        # Build details message
+        if validation_result.success:
+            details = f"✅ All {validation_result.total_tests} tests passed"
+        else:
+            details = f"⚠️ {validation_result.passed_tests}/{validation_result.total_tests} tests passed"
+            if validation_result.error_details:
+                details += f" - {len(validation_result.error_details)} errors detected"
+        
+        return {
+            'success': validation_result.success,
+            'confidence': validation_result.confidence_score,
+            'validation_details': details
+        }
+    
+    def _build_teaching_prompt(self, user_profile: UserProfile, question: str,
                                history: List[HistoryTurn], insights: Dict) -> str:
         """Build an effective teaching prompt."""
-        
         # Format history
         history_text = ""
         if history:
             recent = history[-3:]
             history_text = "\n".join([
-                f"Student: {h.user}\nMentor: {h.assistant}" 
+                f"Student: {h.user}\nMentor: {h.assistant}"
                 for h in recent
             ])
         
-        # Build history section separately to avoid f-string backslash issue
+        # Build history section separately
         history_section = f"Recent Conversation:\n{history_text}\n\n" if history_text else ""
         
         # Build prompt
@@ -115,7 +193,7 @@ Student Profile:
 Provide a clear, helpful answer that:
 1. Directly addresses their question
 2. Is appropriate for their {user_profile.experience} level
-3. Includes a practical code example if relevant
+3. Includes a practical code example if relevant (use ```python code blocks)
 4. Uses {user_profile.learning_style} teaching approach
 
 Your response:"""
@@ -124,7 +202,6 @@ Your response:"""
     
     async def _analyze_past_performance(self, user_id: int) -> Dict:
         """Analyze past interactions to identify patterns."""
-        
         recent_failures = self.db.query(AgentTrace).filter(
             and_(
                 AgentTrace.user_id == user_id,
@@ -170,7 +247,6 @@ Your response:"""
     async def _update_performance_metrics(self, user_id: int):
         """Update aggregate performance metrics."""
         since = datetime.utcnow() - timedelta(hours=24)
-        
         traces = self.db.query(AgentTrace).filter(
             and_(
                 AgentTrace.user_id == user_id,

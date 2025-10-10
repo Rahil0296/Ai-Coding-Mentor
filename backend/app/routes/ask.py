@@ -27,17 +27,14 @@ logger = logging.getLogger(__name__)
 class OllamaLLMClient:
     """
     Production LLM client that interfaces with Ollama.
-    
-    WHY: Provides a consistent interface between our agent and the LLM
-    HOW: Wraps Ollama API calls with error handling and response formatting
-    SECURITY: No external API keys, runs locally, no data leaves the system
+
     """
     
     def __init__(self):
         self.base_url = getattr(state, "ollama_base_url", "http://localhost:11434")
         self.model_name = getattr(state, "model_name", None)
         
-    async def generate(self, prompt: str, timeout: int = 30) -> str:
+    async def generate(self, prompt: str, timeout: int = 60) -> str:
         """
         Generate a response from the LLM with structured output support.
         """

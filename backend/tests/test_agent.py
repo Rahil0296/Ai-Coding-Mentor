@@ -12,7 +12,7 @@ async def test_agent_streaming():
     onboard_data = {
         "name": "Test User",
         "email": unique_email,
-        "language": "en",
+        "programming_language": "en",
         "learning_style": "hands-on",
         "daily_hours": 2,
         "goal": "Learn Python basics",
@@ -102,7 +102,7 @@ async def test_code_execution():
     onboard_data = {
         "name": "Exec Test User",
         "email": unique_email,
-        "language": "en",
+        "programming_language": "Python",
         "learning_style": "hands-on",
         "daily_hours": 2,
         "goal": "Test execution",
@@ -131,7 +131,7 @@ def factorial(n):
 print(f"Factorial of 5 is: {factorial(5)}")
 print("Hello from executed Python code!")
 """,
-        "language": "python"
+        "programming_language": "python"
     }
     
     response = requests.post("http://localhost:8000/execute", json=execute_data)
