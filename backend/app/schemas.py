@@ -22,6 +22,7 @@ class OnboardRequest(BaseModel):
     daily_hours: int
     goal: str
     experience: str
+    teaching_mode: Optional[str] = "guided"  # NEW
 
 
 class RoadmapCreate(BaseModel):
@@ -48,6 +49,8 @@ class UserProfileResponse(BaseModel):
     goal: str
     experience: str
     created_at: datetime
+    teaching_mode: str  # NEW
+    min_confidence_threshold: int  # NEW
 
     class Config:
         from_attributes = True
