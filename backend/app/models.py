@@ -95,6 +95,12 @@ class AgentTrace(Base):
     # Learning data
     pattern_detected = Column(String)  # e.g., "user_confusion", "wrong_tool_selected"
     improvement_suggestion = Column(Text)  # What to do differently next time
+    
+    # NEW: Self-correction tracking
+    correction_attempts = Column(Integer, default=0)
+    original_confidence = Column(Integer, nullable=True)
+    final_confidence = Column(Integer, nullable=True)
+    improvement_delta = Column(Integer, nullable=True)  # final - original
 
     user = relationship("User")
 
