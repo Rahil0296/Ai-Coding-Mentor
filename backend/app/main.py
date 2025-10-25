@@ -1,7 +1,8 @@
 import os
 import logging
 from contextlib import asynccontextmanager
-
+from app.routes import users, roadmaps, ask, health, analytics 
+    
 import requests
 from fastapi import FastAPI
 
@@ -66,3 +67,4 @@ app.include_router(users.router)
 app.include_router(roadmaps.router)
 app.include_router(ask.router)
 app.include_router(health.router)
+app.include_router(analytics.router)
