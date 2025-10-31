@@ -5,15 +5,15 @@ Secure endpoint for retrieving user learning analytics.
 Security features:
 - Input validation (user_id must be positive integer)
 - User existence verification
-- Authorization checks (users can only access their own analytics)
-- Rate limiting considerations (add decorator)
+- Rate limiting (10 requests per minute for analytics, 30 for summary)
 - Comprehensive error handling
 - No PII in error messages
 """
-
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from app.middleware.rate_limiting import rate_limit
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from typing import Optional
+from datetime import datetime
 
 from app.db import get_db
 from app.analytics_schemas import AnalyticsResponse, AnalyticsError
@@ -21,12 +21,6 @@ from app.services.analytics_service import AnalyticsService
 
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
-
-
-# TODO: Add rate limiting decorator
-# from slowapi import Limiter
-# limiter = Limiter(key_func=get_remote_address)
-# @limiter.limit("10/minute")  # 10 requests per minute per IP
 
 
 @router.get(
@@ -41,7 +35,7 @@ router = APIRouter(prefix="/analytics", tags=["Analytics"])
     - User must exist in database
     - Returns 404 if user not found
     - All metrics are calculated from database with SQL injection protection
-    - Rate limiting recommended for production
+    - Rate limited to 10 requests per minute per IP
     
     **Metrics Included:**
     - Question counts (total, weekly, daily)
@@ -70,13 +64,18 @@ router = APIRouter(prefix="/analytics", tags=["Analytics"])
             "description": "User not found",
             "model": AnalyticsError
         },
+        429: {
+            "description": "Rate limit exceeded - too many requests"
+        },
         500: {
             "description": "Internal server error",
             "model": AnalyticsError
         }
     }
 )
+@rate_limit("analytics")  # 10 requests per minute
 async def get_user_analytics(
+    request: Request,
     user_id: int,
     days_back: Optional[int] = Query(
         default=30,
@@ -90,6 +89,7 @@ async def get_user_analytics(
     Get comprehensive analytics for a specific user.
     
     Args:
+        request: FastAPI request object (for rate limiting)
         user_id: User ID (path parameter)
         days_back: Number of days to analyze (query parameter, default 30)
         db: Database session (dependency injection)
@@ -98,11 +98,11 @@ async def get_user_analytics(
         AnalyticsResponse with all metrics
     
     Raises:
-        HTTPException: 400 for invalid input, 404 for user not found, 500 for server errors
+        HTTPException: 400 for invalid input, 404 for user not found, 429 for rate limit, 500 for server errors
     
     Security:
+        - Rate limited to 10 requests per minute per IP address
         - TODO: Add authentication to verify requesting user owns this user_id
-        - TODO: Add @limiter.limit("10/minute") decorator
     """
     
     # Input validation: user_id must be positive
@@ -172,15 +172,26 @@ async def get_user_analytics(
     Lightweight endpoint returning only key metrics.
     Useful for dashboard widgets or mobile apps.
     
+    Rate limited to 30 requests per minute per IP.
+    
     Returns:
     - Total questions
     - Success rate
     - Current streak
     - Questions this week
     """,
-    status_code=status.HTTP_200_OK
+    status_code=status.HTTP_200_OK,
+    responses={
+        200: {"description": "Summary successfully retrieved"},
+        400: {"description": "Invalid user_id"},
+        404: {"description": "User not found"},
+        429: {"description": "Rate limit exceeded"},
+        500: {"description": "Internal server error"}
+    }
 )
+@rate_limit("analytics_summary")  # 30 requests per minute
 async def get_analytics_summary(
+    request: Request,
     user_id: int,
     db: Session = Depends(get_db)
 ):
@@ -188,6 +199,7 @@ async def get_analytics_summary(
     Quick summary endpoint with minimal data transfer.
     
     Lighter alternative to full analytics for performance-sensitive use cases.
+    Rate limited to 30 requests per minute per IP address.
     """
     if user_id <= 0:
         raise HTTPException(
@@ -224,7 +236,3 @@ async def get_analytics_summary(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error generating analytics summary"
         )
-
-
-# Import datetime for summary endpoint
-from datetime import datetime

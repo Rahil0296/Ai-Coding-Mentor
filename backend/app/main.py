@@ -1,8 +1,10 @@
 import os
 import logging
 from contextlib import asynccontextmanager
-from app.routes import users, roadmaps, ask, health, analytics 
-    
+from app.routes import users, roadmaps, ask, analytics
+from app.middleware.rate_limiting import rate_limit_middleware     
+from app.utils.structured_logging import setup_logging, logging_middleware, global_exception_handler
+from app.utils.api_documentation import get_custom_openapi 
 import requests
 from fastapi import FastAPI
 
@@ -55,16 +57,36 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="AI Coding Mentor API", lifespan=lifespan)
+# Setup production logging
+setup_logging(
+    log_level="INFO",
+    log_file="logs/app.log",
+    enable_console=True,
+    enable_file=True
+)
 
-from app.routes import users, roadmaps, ask, health  # noqa: E402
+# Add custom OpenAPI documentation
+app.openapi = lambda: get_custom_openapi(app)
+
+# Import enhanced health route (you'll add this file)
+from app.routes.health_enhanced import router as health_router
+
+# Import execute route if available
 try:
-    from app.routes import execute  # noqa: E402
+    from app.routes import execute
     app.include_router(execute.router)
 except ImportError:
     logging.warning("Execute route not found - code execution will not be available")
 
+# Add logging middleware
+app.middleware("http")(logging_middleware)
+
+# Add global exception handler
+app.add_exception_handler(Exception, global_exception_handler)
+
+# Include all routers
 app.include_router(users.router)
 app.include_router(roadmaps.router)
 app.include_router(ask.router)
-app.include_router(health.router)
+app.include_router(health_router)  # NEW: Enhanced health monitoring
 app.include_router(analytics.router)
