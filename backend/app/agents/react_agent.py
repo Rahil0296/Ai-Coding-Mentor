@@ -10,6 +10,7 @@ from sqlalchemy import and_
 
 from app.models import AgentTrace, UserProfile, AgentPerformanceMetrics
 from app.schemas import HistoryTurn
+from app.utils.token_tracker import TokenTracker
 
 
 
@@ -72,6 +73,11 @@ class SelfImprovingReActAgent:
         execution_time = int((time.time() - start_time) * 1000)
 
         # Log interaction (safe-guard: _log_trace may be implemented elsewhere)
+
+        # Calculate token usage
+        tracking_data = TokenTracker.get_tracking_data(prompt, response_text)
+        
+        # Log interaction with token tracking
         if hasattr(self, "_log_trace"):
             await self._log_trace(
                 user_id=user_id,
@@ -87,6 +93,9 @@ class SelfImprovingReActAgent:
                 correction_attempts=correction_attempts,
                 pattern_detected=None,
                 improvement_suggestion=None,
+                prompt_tokens=tracking_data["prompt_tokens"],
+                completion_tokens=tracking_data["completion_tokens"],
+                estimated_cost_usd=tracking_data["estimated_cost_usd"],
             )
 
         # Update metrics if available
@@ -232,6 +241,11 @@ class SelfImprovingReActAgent:
         trace_data["original_confidence"] = original_confidence
         trace_data["final_confidence"] = final_confidence
         trace_data["improvement_delta"] = improvement_delta
+        
+        # Adding token tracking data
+        trace_data["prompt_tokens"] = kwargs.get("prompt_tokens")
+        trace_data["completion_tokens"] = kwargs.get("completion_tokens")
+        trace_data["estimated_cost_usd"] = kwargs.get("estimated_cost_usd")
 
         trace = AgentTrace(**trace_data)
         self.db.add(trace)

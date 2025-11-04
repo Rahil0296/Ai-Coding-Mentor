@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean, Float
 from sqlalchemy.orm import relationship, declarative_base
 from datetime import datetime, timezone
 
@@ -91,6 +91,11 @@ class AgentTrace(Base):
     confidence_score = Column(Integer)  # 0-100
     execution_time_ms = Column(Integer)
     error_message = Column(Text)
+
+    # Token usage tracking 
+    prompt_tokens = Column(Integer, nullable=True)
+    completion_tokens = Column(Integer, nullable=True)
+    estimated_cost_usd = Column(Float, nullable=True)
 
     # Learning data
     pattern_detected = Column(String)  # e.g., "user_confusion", "wrong_tool_selected"

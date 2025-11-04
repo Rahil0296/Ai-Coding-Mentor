@@ -12,6 +12,7 @@ Security features:
 from app.middleware.rate_limiting import rate_limit
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
+from sqlalchemy import and_
 from typing import Optional
 from datetime import datetime
 
@@ -236,3 +237,219 @@ async def get_analytics_summary(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error generating analytics summary"
         )
+    
+@router.get(
+    "/{user_id}/token-usage",
+    summary="Get Token Usage & Cost Analytics",
+    description="""
+    Track token usage and estimated costs for LLM operations.
+    
+    **Metrics Included:**
+    - Total tokens used (prompt + completion)
+    - Estimated cost (GPT-4 equivalent pricing)
+    - Average tokens per question
+    - Cost efficiency trends
+    - Monthly projections
+    
+    **Why This Matters:**
+    - Production cost planning
+    - Token optimization insights
+    - Budget forecasting
+    
+    Rate limited to 30 requests per minute per IP.
+    """,
+    status_code=status.HTTP_200_OK,
+    responses={
+        200: {"description": "Token usage analytics retrieved"},
+        400: {"description": "Invalid user_id"},
+        404: {"description": "User not found"},
+        429: {"description": "Rate limit exceeded"},
+        500: {"description": "Internal server error"}
+    }
+)
+@rate_limit("analytics_summary")  # 30 requests per minute
+async def get_token_usage_analytics(
+    request: Request,
+    user_id: int,
+    days_back: Optional[int] = Query(
+        default=30,
+        ge=1,
+        le=90,
+        description="Number of days to analyze (1-90)"
+    ),
+    db: Session = Depends(get_db)
+):
+    """
+    Get token usage and cost analytics for a user.
+    
+    Shows production-ready cost tracking and optimization insights.
+    """
+    from app.models import AgentTrace
+    from app.utils.token_tracker import TokenTracker
+    from sqlalchemy import func
+    from datetime import timedelta
+    
+    # Validate user_id
+    if user_id <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="user_id must be positive"
+        )
+    
+    try:
+        service = AnalyticsService(db)
+        
+        # Verify user exists
+        service._validate_user_id(user_id)
+        
+        # Get date cutoff
+        cutoff_date = datetime.utcnow() - timedelta(days=days_back)
+        
+        # Query token usage data
+        token_stats = db.query(
+            func.sum(AgentTrace.prompt_tokens).label('total_prompt_tokens'),
+            func.sum(AgentTrace.completion_tokens).label('total_completion_tokens'),
+            func.sum(AgentTrace.estimated_cost_usd).label('total_cost'),
+            func.avg(AgentTrace.prompt_tokens).label('avg_prompt_tokens'),
+            func.avg(AgentTrace.completion_tokens).label('avg_completion_tokens'),
+            func.count(AgentTrace.id).label('total_requests')
+        ).filter(
+            and_(
+                AgentTrace.user_id == user_id,
+                AgentTrace.timestamp >= cutoff_date,
+                AgentTrace.prompt_tokens.isnot(None)
+            )
+        ).first()
+        
+        # Get daily token usage for trend
+        daily_usage = db.query(
+            func.date(AgentTrace.timestamp).label('date'),
+            func.sum(AgentTrace.prompt_tokens + AgentTrace.completion_tokens).label('total_tokens'),
+            func.sum(AgentTrace.estimated_cost_usd).label('daily_cost')
+        ).filter(
+            and_(
+                AgentTrace.user_id == user_id,
+                AgentTrace.timestamp >= cutoff_date,
+                AgentTrace.prompt_tokens.isnot(None)
+            )
+        ).group_by(
+            func.date(AgentTrace.timestamp)
+        ).order_by(
+            func.date(AgentTrace.timestamp).desc()
+        ).limit(30).all()
+        
+        # Handle case where no token data exists yet
+        if not token_stats or token_stats.total_prompt_tokens is None:
+            return {
+                "user_id": user_id,
+                "status": "no_token_data",
+                "message": "Token tracking is now active! Data will appear after your next question.",
+                "total_tokens": 0,
+                "total_cost_usd": 0.0,
+                "avg_tokens_per_request": 0,
+                "days_analyzed": days_back,
+                "generated_at": datetime.utcnow().isoformat()
+            }
+        
+        # Calculate metrics
+        total_prompt = token_stats.total_prompt_tokens or 0
+        total_completion = token_stats.total_completion_tokens or 0
+        total_tokens = total_prompt + total_completion
+        total_cost = token_stats.total_cost or 0.0
+        avg_prompt = int(token_stats.avg_prompt_tokens or 0)
+        avg_completion = int(token_stats.avg_completion_tokens or 0)
+        total_requests = token_stats.total_requests or 0
+        
+        # Calculate efficiency metrics
+        avg_tokens_per_request = int(total_tokens / total_requests) if total_requests > 0 else 0
+        avg_cost_per_request = total_cost / total_requests if total_requests > 0 else 0
+        
+        # Monthly projection (extrapolate from period)
+        days_in_data = days_back
+        monthly_projection_tokens = int((total_tokens / days_in_data) * 30) if days_in_data > 0 else 0
+        monthly_projection_cost = (total_cost / days_in_data) * 30 if days_in_data > 0 else 0
+        
+        # Format daily trends
+        daily_trends = [
+            {
+                "date": str(day.date),
+                "tokens": int(day.total_tokens or 0),
+                "cost_usd": round(day.daily_cost or 0, 4)
+            }
+            for day in daily_usage
+        ]
+        
+        # Token efficiency rating
+        if avg_tokens_per_request < 500:
+            efficiency_rating = "excellent"
+            efficiency_emoji = "🌟"
+        elif avg_tokens_per_request < 1000:
+            efficiency_rating = "good"
+            efficiency_emoji = "✅"
+        elif avg_tokens_per_request < 2000:
+            efficiency_rating = "moderate"
+            efficiency_emoji = "⚠️"
+        else:
+            efficiency_rating = "needs_optimization"
+            efficiency_emoji = "🔴"
+        
+        return {
+            "user_id": user_id,
+            "status": "active",
+            "period": {
+                "days_analyzed": days_back,
+                "start_date": cutoff_date.date().isoformat(),
+                "end_date": datetime.utcnow().date().isoformat()
+            },
+            "usage_summary": {
+                "total_tokens": total_tokens,
+                "total_prompt_tokens": total_prompt,
+                "total_completion_tokens": total_completion,
+                "total_requests": total_requests,
+                "total_cost_usd": round(total_cost, 4),
+                "formatted_cost": TokenTracker.format_cost(total_cost),
+                "formatted_tokens": TokenTracker.format_tokens(total_tokens)
+            },
+            "averages": {
+                "avg_tokens_per_request": avg_tokens_per_request,
+                "avg_prompt_tokens": avg_prompt,
+                "avg_completion_tokens": avg_completion,
+                "avg_cost_per_request": round(avg_cost_per_request, 4),
+                "formatted_avg_cost": TokenTracker.format_cost(avg_cost_per_request)
+            },
+            "projections": {
+                "monthly_tokens": monthly_projection_tokens,
+                "monthly_cost_usd": round(monthly_projection_cost, 2),
+                "formatted_monthly_cost": TokenTracker.format_cost(monthly_projection_cost),
+                "yearly_cost_usd": round(monthly_projection_cost * 12, 2)
+            },
+            "efficiency": {
+                "rating": efficiency_rating,
+                "emoji": efficiency_emoji,
+                "tokens_per_request": avg_tokens_per_request,
+                "insight": f"Your average of {avg_tokens_per_request} tokens/request is {efficiency_rating}"
+            },
+            "daily_trends": daily_trends[:7],  # Last 7 days
+            "cost_breakdown": {
+                "input_cost_usd": round((total_prompt / 1000) * TokenTracker.INPUT_COST_PER_1K, 4),
+                "output_cost_usd": round((total_completion / 1000) * TokenTracker.OUTPUT_COST_PER_1K, 4)
+            },
+            "generated_at": datetime.utcnow().isoformat()
+        }
+        
+    except ValueError as e:
+        if "does not exist" in str(e):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"User {user_id} not found"
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        print(f"[TOKEN ANALYTICS ERROR] user_id={user_id}, error={str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error generating token analytics"
+        )    
