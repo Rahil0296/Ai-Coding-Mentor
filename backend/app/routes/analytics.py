@@ -1,18 +1,7 @@
-"""
-Analytics Route
-Secure endpoint for retrieving user learning analytics.
-
-Security features:
-- Input validation (user_id must be positive integer)
-- User existence verification
-- Rate limiting (10 requests per minute for analytics, 30 for summary)
-- Comprehensive error handling
-- No PII in error messages
-"""
 from app.middleware.rate_limiting import rate_limit
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
+from sqlalchemy import and_, case
 from typing import Optional
 from datetime import datetime
 
@@ -452,4 +441,186 @@ async def get_token_usage_analytics(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error generating token analytics"
-        )    
+        )
+    
+@router.get(
+"/{user_id}/velocity",
+summary = "Get Learning Velocity & Improvement Rate",
+description = """
+    Track how fast you're improving as a learner.
+    
+    Compares this week vs last week to show:
+    - Confidence score improvement
+    - Success rate changes
+    - Question volume trends
+    - Personalized encouragement
+    
+    Shows you're getting better over time! 📈
+    """,
+    status_code=status.HTTP_200_OK
+)
+async def get_learning_velocity(
+    request: Request,
+    user_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Calculate learning velocity - how fast the user is improving.
+    
+    Compares metrics from this week vs last week.
+    """
+    from app.models import AgentTrace
+    from sqlalchemy import func
+    from datetime import timedelta
+    
+    # Validate user_id
+    if user_id <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="user_id must be positive"
+        )
+    
+    try:
+        service = AnalyticsService(db)
+        service._validate_user_id(user_id)
+        
+        now = datetime.utcnow()
+        
+        # Define time periods
+        this_week_start = now - timedelta(days=7)
+        last_week_start = now - timedelta(days=14)
+        last_week_end = this_week_start
+        
+        # Get this week's data
+        this_week_stats = db.query(
+            func.count(AgentTrace.id).label('count'),
+            func.avg(AgentTrace.confidence_score).label('avg_confidence'),
+            func.sum(case((AgentTrace.success == True, 1), else_=0)).label('successes')
+        ).filter(
+            and_(
+                AgentTrace.user_id == user_id,
+                AgentTrace.timestamp >= this_week_start,
+                AgentTrace.confidence_score.isnot(None)
+            )
+        ).first()
+        
+        # Get last week's data
+        last_week_stats = db.query(
+            func.count(AgentTrace.id).label('count'),
+            func.avg(AgentTrace.confidence_score).label('avg_confidence'),
+            func.sum(case((AgentTrace.success == True, 1), else_=0)).label('successes')
+        ).filter(
+            and_(
+                AgentTrace.user_id == user_id,
+                AgentTrace.timestamp >= last_week_start,
+                AgentTrace.timestamp < last_week_end,
+                AgentTrace.confidence_score.isnot(None)
+            )
+        ).first()
+        
+        # Handle case where no data exists
+        if not this_week_stats or this_week_stats.count == 0:
+            return {
+                "user_id": user_id,
+                "status": "insufficient_data",
+                "message": "Keep learning! We need at least a week of data to track your velocity.",
+                "this_week_questions": 0,
+                "generated_at": datetime.utcnow().isoformat()
+            }
+        
+        # Extract metrics
+        this_week_count = this_week_stats.count or 0
+        this_week_confidence = this_week_stats.avg_confidence or 0
+        this_week_successes = this_week_stats.successes or 0
+        this_week_success_rate = (this_week_successes / this_week_count * 100) if this_week_count > 0 else 0
+        
+        last_week_count = last_week_stats.count or 0 if last_week_stats else 0
+        last_week_confidence = last_week_stats.avg_confidence or 0 if last_week_stats else 0
+        last_week_successes = last_week_stats.successes or 0 if last_week_stats else 0
+        last_week_success_rate = (last_week_successes / last_week_count * 100) if last_week_count > 0 else 0
+        
+        # Calculate improvements
+        if last_week_confidence > 0:
+            confidence_change = ((this_week_confidence - last_week_confidence) / last_week_confidence) * 100
+        else:
+            confidence_change = 0
+        
+        if last_week_success_rate > 0:
+            success_rate_change = this_week_success_rate - last_week_success_rate
+        else:
+            success_rate_change = 0
+        
+        activity_change = this_week_count - last_week_count
+        
+        # Generate velocity rating
+        if confidence_change >= 15:
+            velocity_rating = "accelerating"
+            emoji = "🚀"
+            message = f"Amazing! You're improving {abs(int(confidence_change))}% faster than last week!"
+        elif confidence_change >= 5:
+            velocity_rating = "improving"
+            emoji = "📈"
+            message = f"Great progress! You're {abs(int(confidence_change))}% better than last week!"
+        elif confidence_change >= -5:
+            velocity_rating = "steady"
+            emoji = "➡️"
+            message = "You're maintaining consistent performance. Keep it up!"
+        else:
+            velocity_rating = "needs_focus"
+            emoji = "💪"
+            message = "Everyone has off weeks. Stay consistent and you'll bounce back!"
+        
+        # Activity feedback
+        if activity_change > 5:
+            activity_feedback = f"🔥 {activity_change} more questions than last week!"
+        elif activity_change > 0:
+            activity_feedback = f"✅ {activity_change} more questions than last week"
+        elif activity_change == 0:
+            activity_feedback = "Same activity level as last week"
+        else:
+            activity_feedback = f"⚠️ {abs(activity_change)} fewer questions than last week"
+        
+        return {
+            "user_id": user_id,
+            "status": "active",
+            "velocity": {
+                "rating": velocity_rating,
+                "emoji": emoji,
+                "message": message
+            },
+            "this_week": {
+                "questions": this_week_count,
+                "avg_confidence": round(this_week_confidence, 1),
+                "success_rate": round(this_week_success_rate, 1)
+            },
+            "last_week": {
+                "questions": last_week_count,
+                "avg_confidence": round(last_week_confidence, 1),
+                "success_rate": round(last_week_success_rate, 1)
+            },
+            "changes": {
+                "confidence_change_percent": round(confidence_change, 1),
+                "success_rate_change": round(success_rate_change, 1),
+                "activity_change": activity_change,
+                "activity_feedback": activity_feedback
+            },
+            "insight": message,
+            "generated_at": datetime.utcnow().isoformat()
+        }
+        
+    except ValueError as e:
+        if "does not exist" in str(e):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"User {user_id} not found"
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail = str(e)
+        )
+    except Exception as e:
+        print(f"[VELOCITY ERROR] user_id={user_id}, error={str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error calculating learning velocity"
+        )

@@ -16,6 +16,8 @@ from app.dependencies import get_db
 from app.agents.react_agent import SelfImprovingReActAgent
 from app.models import AgentPerformanceMetrics
 import app.state as state
+from app.utils.learning_tips import LearningTipsProvider
+
 
 router = APIRouter(prefix="/ask", tags=["ask"])
 
@@ -213,6 +215,7 @@ async def ask_route(
             # Save user message
             save_conversation_message(db, body.user_id, question, "user")
             
+
             # Phase 1: Show that we're analyzing past interactions
             yield json.dumps({
                 "type": "learning_analysis",
@@ -418,3 +421,21 @@ Provide a clear, encouraging response appropriate for their level. Use examples 
         media_type="application/json",
         headers={"Cache-Control": "no-cache"}
     )
+
+@router.get("/daily-tip")
+async def get_daily_learning_tip():
+    """
+    Get the daily learning tip.
+    
+    Returns the same tip all day (date-based), changes daily.
+    Provides coding wisdom and best practices to inspire learners.
+    """
+    tip_data = LearningTipsProvider.get_daily_tip()
+    
+    return {
+        "status": "success",
+        "daily_tip": tip_data["tip"],
+        "date": tip_data["date"],
+        "tip_id": f"{tip_data['tip_number']}/{tip_data['total_tips']}",
+        "message": "💡 Your daily dose of coding wisdom!"
+    }
