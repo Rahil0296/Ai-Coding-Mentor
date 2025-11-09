@@ -80,4 +80,9 @@ desktop.ini
 
 # ========================================
 # Migration Scripts (One-time use)
-# =================
+# ========================================
+backend/create_agent_tables.py
+backend/fix_roadmap_fk.py
+backend/migrate_language_column.py
+backend/reset_db.py
+backend/update_db.py
