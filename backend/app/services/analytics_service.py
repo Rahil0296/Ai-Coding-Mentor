@@ -3,6 +3,8 @@ from sqlalchemy import func, and_, extract, desc, case
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional, Tuple
 import re
+from datetime import datetime, timezone
+import re
 
 from app.models import User, UserProfile, AgentTrace, ConversationHistory
 from app.analytics_schemas import (
@@ -399,3 +401,74 @@ class AnalyticsService:
         # Convert ms to hours
         hours = total_ms / (1000 * 60 * 60)
         return round(hours, 2)
+    
+    def search_past_questions(self, user_id: int, search_query: str, limit: int = 5) -> List[Dict]:
+        
+        # Validate inputs
+        self._validate_user_id(user_id)
+        
+        if not search_query or len(search_query.strip()) < 3:
+            raise ValueError("Search query must be at least 3 characters")
+        
+        search_query = search_query.lower().strip()
+        
+        # Get all user's questions
+        traces = self.db.query(AgentTrace)\
+            .filter(AgentTrace.user_id == user_id)\
+            .order_by(AgentTrace.timestamp.desc())\
+            .limit(200)\
+            .all()
+        
+        if not traces:
+            return []
+        
+        # Extract keywords from search query
+        search_keywords = set(re.findall(r'\w+', search_query))
+        
+        # Score and rank results
+        results = []
+        for trace in traces:
+            if not trace.user_input:
+                continue
+            
+            question_lower = trace.user_input.lower()
+            
+            # Simple keyword matching
+            question_keywords = set(re.findall(r'\w+', question_lower))
+            
+            # Calculate match score
+            common_keywords = search_keywords & question_keywords
+            if not common_keywords:
+                continue
+            
+            # Score based on keyword overlap
+            score = len(common_keywords) / max(len(search_keywords), len(question_keywords))
+            
+            # Boost exact phrase matches
+            if search_query in question_lower:
+                score += 0.5
+            
+            # Calculate days ago (handle both timezone-aware and naive datetimes)
+            now = datetime.now(timezone.utc)
+            trace_time = trace.timestamp
+            
+            # Make trace_time timezone-aware if it's naive
+            if trace_time.tzinfo is None:
+                trace_time = trace_time.replace(tzinfo=timezone.utc)
+            
+            days_ago = (now - trace_time).days
+            
+            results.append({
+                "question": trace.user_input,
+                "timestamp": trace.timestamp.isoformat(),
+                "days_ago": days_ago,
+                "confidence": trace.confidence_score or 0,
+                "success": trace.success or False,
+                "match_score": round(score, 2),
+                "matched_keywords": list(common_keywords)
+            })
+        
+        # Sort by match score (descending)
+        results.sort(key=lambda x: x["match_score"], reverse=True)
+        
+        return results[:limit]

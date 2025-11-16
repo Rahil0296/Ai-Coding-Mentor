@@ -1,9 +1,20 @@
+"""
+Analytics Route
+Secure endpoint for retrieving user learning analytics.
+
+Security features:
+- Input validation (user_id must be positive integer)
+- User existence verification
+- Rate limiting (10 requests per minute for analytics, 30 for summary)
+- Comprehensive error handling
+- No PII in error messages
+"""
 from app.middleware.rate_limiting import rate_limit
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, case
-from typing import Optional
-from datetime import datetime
+from typing import Optional, List, Dict
+from datetime import datetime, timedelta, timezone
 
 from app.db import get_db
 from app.analytics_schemas import AnalyticsResponse, AnalyticsError
@@ -226,7 +237,8 @@ async def get_analytics_summary(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error generating analytics summary"
         )
-    
+
+
 @router.get(
     "/{user_id}/token-usage",
     summary="Get Token Usage & Cost Analytics",
@@ -276,7 +288,6 @@ async def get_token_usage_analytics(
     from app.models import AgentTrace
     from app.utils.token_tracker import TokenTracker
     from sqlalchemy import func
-    from datetime import timedelta
     
     # Validate user_id
     if user_id <= 0:
@@ -292,7 +303,7 @@ async def get_token_usage_analytics(
         service._validate_user_id(user_id)
         
         # Get date cutoff
-        cutoff_date = datetime.utcnow() - timedelta(days=days_back)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_back)
         
         # Query token usage data
         token_stats = db.query(
@@ -423,7 +434,7 @@ async def get_token_usage_analytics(
                 "input_cost_usd": round((total_prompt / 1000) * TokenTracker.INPUT_COST_PER_1K, 4),
                 "output_cost_usd": round((total_completion / 1000) * TokenTracker.OUTPUT_COST_PER_1K, 4)
             },
-            "generated_at": datetime.utcnow().isoformat()
+            "generated_at": datetime.now(timezone.utc).isoformat()
         }
         
     except ValueError as e:
@@ -442,11 +453,12 @@ async def get_token_usage_analytics(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error generating token analytics"
         )
-    
+
+
 @router.get(
-"/{user_id}/velocity",
-summary = "Get Learning Velocity & Improvement Rate",
-description = """
+    "/{user_id}/velocity",
+    summary="Get Learning Velocity & Improvement Rate",
+    description="""
     Track how fast you're improving as a learner.
     
     Compares this week vs last week to show:
@@ -471,7 +483,6 @@ async def get_learning_velocity(
     """
     from app.models import AgentTrace
     from sqlalchemy import func
-    from datetime import timedelta
     
     # Validate user_id
     if user_id <= 0:
@@ -484,7 +495,7 @@ async def get_learning_velocity(
         service = AnalyticsService(db)
         service._validate_user_id(user_id)
         
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         
         # Define time periods
         this_week_start = now - timedelta(days=7)
@@ -605,7 +616,7 @@ async def get_learning_velocity(
                 "activity_feedback": activity_feedback
             },
             "insight": message,
-            "generated_at": datetime.utcnow().isoformat()
+            "generated_at": datetime.now(timezone.utc).isoformat()
         }
         
     except ValueError as e:
@@ -616,11 +627,115 @@ async def get_learning_velocity(
             )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail = str(e)
+            detail=str(e)
         )
     except Exception as e:
         print(f"[VELOCITY ERROR] user_id={user_id}, error={str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error calculating learning velocity"
+        )
+
+
+@router.get(
+    "/{user_id}/search",
+    summary="Search Past Questions",
+    description="""
+    Search through your question history to find similar past questions.
+    
+    **Use Cases:**
+    - "Did I ask about this before?"
+    - Find related past discussions
+    - Review how you learned a topic
+    
+    **Search Tips:**
+    - Use keywords: "loop", "function", "list"
+    - Minimum 3 characters
+    - Returns top 5 matches by relevance
+    """,
+    status_code=status.HTTP_200_OK
+)
+async def search_past_questions(
+    request: Request,
+    user_id: int,
+    q: str = Query(..., min_length=3, max_length=100, description="Search query"),
+    limit: int = Query(5, ge=1, le=20, description="Max results"),
+    db: Session = Depends(get_db)
+):
+    """
+    Search through user's question history for similar questions.
+    
+    Shows when they asked similar questions before with context.
+    """
+    # Validate user_id
+    if user_id <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="user_id must be positive"
+        )
+    
+    try:
+        service = AnalyticsService(db)
+        
+        # Search past questions
+        results = service.search_past_questions(
+            user_id=user_id,
+            search_query=q,
+            limit=limit
+        )
+        
+        # Format response
+        if not results:
+            return {
+                "user_id": user_id,
+                "search_query": q,
+                "total_results": 0,
+                "message": "No similar questions found. This might be your first time asking about this topic!",
+                "results": [],
+                "generated_at": datetime.now(timezone.utc).isoformat()
+            }
+        
+        # Generate insights
+        avg_confidence = sum(r["confidence"] for r in results) / len(results) if results else 0
+        most_recent = min(r["days_ago"] for r in results)
+        
+        if most_recent == 0:
+            recency_message = "You asked about this today!"
+        elif most_recent == 1:
+            recency_message = "You asked about this yesterday"
+        elif most_recent <= 7:
+            recency_message = f"You asked about this {most_recent} days ago"
+        else:
+            recency_message = f"You last explored this {most_recent} days ago"
+        
+        return {
+            "user_id": user_id,
+            "search_query": q,
+            "total_results": len(results),
+            "message": f"Found {len(results)} similar question(s) in your history",
+            "insights": {
+                "recency": recency_message,
+                "avg_confidence": round(avg_confidence, 1),
+                "most_recent_days_ago": most_recent
+            },
+            "results": results,
+            "generated_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except ValueError as e:
+        error_msg = str(e)
+        if "does not exist" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"User {user_id} not found"
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_msg
+        )
+    except Exception as e:
+        print(f"[SEARCH ERROR] user_id={user_id}, query={q}, error={str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error searching questions"
         )
