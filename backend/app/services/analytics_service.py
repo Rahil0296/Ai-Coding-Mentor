@@ -433,7 +433,6 @@ class AnalyticsService:
             
             question_lower = trace.user_input.lower()
             
-            # Simple keyword matching
             question_keywords = set(re.findall(r'\w+', question_lower))
             
             # Calculate match score
@@ -448,12 +447,10 @@ class AnalyticsService:
             if search_query in question_lower:
                 score += 0.5
             
-            # Calculate days ago (handle both timezone-aware and naive datetimes)
             now = datetime.now(timezone.utc)
             trace_time = trace.timestamp
             
-            # Make trace_time timezone-aware if it's naive
-            if trace_time.tzinfo is None:
+            if trace_time.tzinfo is None: 
                 trace_time = trace_time.replace(tzinfo=timezone.utc)
             
             days_ago = (now - trace_time).days
@@ -468,7 +465,6 @@ class AnalyticsService:
                 "matched_keywords": list(common_keywords)
             })
         
-        # Sort by match score (descending)
         results.sort(key=lambda x: x["match_score"], reverse=True)
         
         return results[:limit]

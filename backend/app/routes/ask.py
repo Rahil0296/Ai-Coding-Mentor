@@ -104,9 +104,7 @@ class OllamaLLMClient:
             })
     
     async def stream(self, prompt: str) -> AsyncGenerator[str, None]:
-        """
-        Stream responses from the LLM.
-        """
+
         if not getattr(state, "model_loaded", False) or not self.model_name:
             yield "Model not loaded"
             return
@@ -143,13 +141,7 @@ class OllamaLLMClient:
 
 
 async def get_agent(request: Request, db: Session = Depends(get_db)) -> SelfImprovingReActAgent:
-    """
-    Dependency injection for agent with request-scoped lifecycle.
-    
-    WHY: Ensures each request gets a fresh agent instance with clean state
-    HOW: FastAPI's dependency system manages lifecycle
-    SECURITY: Prevents state leakage between requests
-    """
+
     if not hasattr(request.state, "agent"):
         llm_client = OllamaLLMClient()
         request.state.agent = SelfImprovingReActAgent(llm_client, db)
@@ -177,13 +169,6 @@ async def ask_route(
     db: Session = Depends(get_db),
     agent: SelfImprovingReActAgent = Depends(get_agent)
 ):
-    """
-    Main endpoint using self-improving agent with trace learning.
-    
-    WHY: This is the core differentiator - an agent that gets better over time
-    HOW: Every interaction is traced, analyzed, and used to improve future responses
-    SECURITY: Input validation, user verification, sanitized outputs
-    """
     # Security: Verify user exists
     user = get_user(db, body.user_id)
     if not user:
@@ -202,12 +187,7 @@ async def ask_route(
         raise HTTPException(status_code=400, detail="Invalid characters in question")
     
     async def generate_learning_response():
-        """
-        Stream response with learning insights.
-        
-        WHY: Shows the agent's learning process transparently
-        HOW: Structured streaming with phases: thinking → acting → learning
-        """
+
         try:
             start_time = time.time()
             session_id = str(uuid.uuid4())
@@ -305,13 +285,7 @@ async def ask_route(
 
 @router.get("/performance/{user_id}")
 async def get_performance_metrics(user_id: int, db: Session = Depends(get_db)):
-    """
-    Show learning progress and improvement metrics.
-    
-    WHY: Proves the "35% error reduction" claim with real data
-    HOW: Aggregates performance over time, shows improvement trends
-    SECURITY: Only shows user's own data
-    """
+
     # Verify user exists
     user = get_user(db, user_id)
     if not user:
@@ -363,13 +337,7 @@ async def get_performance_metrics(user_id: int, db: Session = Depends(get_db)):
 
 @router.post("/simple")
 async def simple_ask_route(body: Ask, db: Session = Depends(get_db)):
-    """
-    Legacy endpoint without learning features.
-    
-    WHY: Backward compatibility and A/B testing baseline
-    HOW: Direct Ollama streaming without agent processing
-    SECURITY: Same validation as main endpoint
-    """
+   
     # Security: Verify user
     user = get_user(db, body.user_id)
     if not user:
