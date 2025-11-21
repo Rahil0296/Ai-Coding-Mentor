@@ -38,7 +38,7 @@ An AI-powered coding education platform that provides personalized, adaptive pro
 
 ```
 ┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
-│  React Frontend │────▶│| FastAPI Backend |│────▶│    PostgreSQL   │
+│  React Frontend │────▶ │ FastAPI Backend |────▶│    PostgreSQL   │
 │  (Coming Soon)  │      │                 │      │    Database     │
 └─────────────────┘      │                 │      └─────────────────┘
                          └─────────────────┘              │
@@ -288,3 +288,4 @@ This is currently a portfolio project demonstrating advanced AI application deve
 ---
 
 **Note**: This is an active development project showcasing modern AI application architecture, secure API design, and **production-ready backend development practices** including monitoring, security, and observability.
+
