@@ -1,4 +1,4 @@
-# 🤖 Agentic AI Coding Mentor
+# 🤖 AI Coding Mentor
 
 **(Production Features Added!)**
 
